@@ -37,6 +37,17 @@ The desktop app is rebranded to **Meverinth** so users don't confuse this fork w
 - `modrinth://` / `modrinthscheme://` URL schemes — install links from modrinth.com use these.
 - The `theseus` / `theseus_gui` crate names.
 
+## GitHub Actions build
+
+Ships a fork-specific workflow that builds Meverinth on free GitHub-hosted runners for Linux, macOS (arm64), and Windows. No paid runners, no S3-backed sccache, no code-signing secrets required. Runs on manual dispatch and on `v*` tag pushes; tag pushes also draft a GitHub Release with the built binaries attached.
+
+| File | Intent to preserve |
+| --- | --- |
+| `.github/workflows/meverinth-build.yml` | **New file.** Matrix over `ubuntu-latest` / `macos-latest` / `windows-latest`. Copies `packages/app-lib/.env.prod` to `.env` before building. Stamps `MEVERINTH_VERSION` into `apps/app-frontend/package.json` from a dispatch input, tag name, or the existing `version` field, in that order. Uploads per-platform artifacts and, on tag push, drafts a release. |
+| `.github/workflows/theseus-build.yml` | **Deleted.** Modrinth's builder; needs Blacksmith runners, sccache S3 secrets, Apple/DigiCert code-signing keys, and Tauri minisign keys. Would fire on the same triggers as our workflow and fail. |
+| `.github/workflows/theseus-release.yml` | **Deleted.** Consumed the theseus-build artifacts to publish to Modrinth's own release channel. |
+| `apps/app/tauri-release.conf.json` | **Deleted.** Nothing left in it worth keeping once the updater block and the DigiCert `signCommand` were removed — Tauri falls back to `tauri.conf.json`, which is what we want. |
+
 ## Auto-updates disabled
 
 The Tauri auto-updater is turned off in release builds, and the standalone Linux update-check polling loop is removed. Without this, a release build would download and install Modrinth App releases from `launcher-files.modrinth.com` and silently replace Meverinth (Modrinth's signed artifacts validate against the pubkey that used to be baked into the binary).
