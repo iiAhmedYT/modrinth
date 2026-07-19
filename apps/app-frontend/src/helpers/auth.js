@@ -34,6 +34,16 @@ export async function login() {
 }
 
 /**
+ * Create an offline-mode Minecraft account from a username and select it.
+ *
+ * @param {string} username - The Minecraft username for the offline account.
+ * @returns {Promise<Credentials>}
+ */
+export async function login_offline(username) {
+	return await invoke('plugin:auth|login_offline', { username })
+}
+
+/**
  * Retrieves the default user
  * @return {Promise<UUID | undefined>}
  */

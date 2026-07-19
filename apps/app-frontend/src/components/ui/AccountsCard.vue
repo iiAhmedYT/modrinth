@@ -1,11 +1,12 @@
 <template>
+	<AddAccountModal ref="addAccountModal" @added="handleAccountAdded" />
 	<div
 		v-if="accounts.length === 0"
 		class="flex flex-col gap-3 bg-button-bg border border-solid border-surface-5 rounded-xl p-3 mt-2"
 	>
 		<span>{{ formatMessage(messages.notSignedIn) }}</span>
 		<ButtonStyled color="brand">
-			<button color="primary" :disabled="loginDisabled" @click="login()">
+			<button color="primary" :disabled="loginDisabled" @click="openAddAccount">
 				<LogInIcon v-if="!loginDisabled" />
 				<SpinnerIcon v-else class="animate-spin" />
 				{{ formatMessage(messages.signInToMinecraft) }}
@@ -73,7 +74,7 @@
 			</template>
 			<div class="flex flex-col gap-2 px-2 pt-2">
 				<ButtonStyled v-if="accounts.length > 0" class="w-full">
-					<button :disabled="loginDisabled" @click="login()">
+					<button :disabled="loginDisabled" @click="openAddAccount">
 						<PlusIcon />
 						{{ formatMessage(messages.addAccount) }}
 					</button>
@@ -103,10 +104,10 @@ import {
 import type { Ref } from 'vue'
 import { computed, onUnmounted, ref } from 'vue'
 
+import AddAccountModal from '@/components/ui/AddAccountModal.vue'
 import { trackEvent } from '@/helpers/analytics'
 import {
 	get_default_user,
-	login as login_flow,
 	remove_user,
 	set_default_user,
 	users,
@@ -115,7 +116,6 @@ import { process_listener } from '@/helpers/events'
 import { getPlayerHeadUrl } from '@/helpers/rendering/batch-skin-renderer.ts'
 import type { Skin } from '@/helpers/skins'
 import { get_available_skins } from '@/helpers/skins'
-import { handleSevereError } from '@/store/error.js'
 
 const { formatMessage } = useVIntl()
 const { handleError } = injectNotificationManager()
@@ -136,6 +136,7 @@ const loginDisabled = ref(false)
 const defaultUser = ref<string | undefined>()
 const equippedSkin = ref<Skin | null>(null)
 const headUrlCache = ref(new Map<string, string>())
+const addAccountModal = ref<InstanceType<typeof AddAccountModal>>()
 
 async function refreshValues() {
 	defaultUser.value = await get_default_user().catch(handleError)
@@ -225,16 +226,14 @@ async function setAccount(account: MinecraftCredential) {
 	emit('change')
 }
 
-async function login() {
-	loginDisabled.value = true
-	const loggedIn = await login_flow().catch(handleSevereError)
+function openAddAccount() {
+	if (loginDisabled.value) return
+	addAccountModal.value?.show()
+}
 
-	if (loggedIn) {
-		await setAccount(loggedIn)
-	}
-
+async function handleAccountAdded(credential: MinecraftCredential) {
+	await setAccount(credential)
 	trackEvent('AccountLogIn')
-	loginDisabled.value = false
 }
 
 async function logout(id: string) {

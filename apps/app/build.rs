@@ -14,6 +14,7 @@ fn main() {
                     .commands(&[
                         "check_reachable",
                         "login",
+                        "login_offline",
                         "remove_user",
                         "get_default_user",
                         "set_default_user",
@@ -102,6 +103,17 @@ fn main() {
                     .commands(&[
                         "metadata_get_game_versions",
                         "metadata_get_loader_versions",
+                    ])
+                    .default_permission(
+                        DefaultPermissionRule::AllowAllCommands,
+                    ),
+            )
+            .plugin(
+                "migration",
+                InlinedPlugin::new()
+                    .commands(&[
+                        "find_modrinth_install_candidate",
+                        "migrate_from_modrinth",
                     ])
                     .default_permission(
                         DefaultPermissionRule::AllowAllCommands,

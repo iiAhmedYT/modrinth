@@ -1,41 +1,25 @@
-import { invoke } from '@tauri-apps/api/core'
-import { listen } from '@tauri-apps/api/event'
+// Ads have been removed from this privacy-focused build. These helpers are
+// kept as no-ops so existing call sites continue to work without changes.
 
-export async function init_ads_window(overrideShown = false) {
-	return await invoke('plugin:ads|init_ads_window', {
-		overrideShown,
-		dpr: window.devicePixelRatio,
-	})
-}
+export async function init_ads_window(_overrideShown = false) {}
 
-export async function show_ads_window() {
-	return await invoke('plugin:ads|show_ads_window', { dpr: window.devicePixelRatio })
-}
+export async function show_ads_window() {}
 
-export async function hide_ads_window(reset) {
-	return await invoke('plugin:ads|hide_ads_window', { reset })
-}
+export async function hide_ads_window(_reset) {}
 
 export async function get_ads_consent_required() {
-	return await invoke('plugin:ads|get_ads_consent_required')
+	return false
 }
 
-export async function perform_ads_consent_action(action) {
-	return await invoke('plugin:ads|perform_ads_consent_action', { action })
+export async function perform_ads_consent_action(_action) {}
+
+export async function open_ads_consent_preferences() {}
+
+export async function ads_consent_listener(_callback) {
+	// Return a no-op unlisten function to match Tauri's listen() contract.
+	return () => {}
 }
 
-export async function open_ads_consent_preferences() {
-	return await invoke('plugin:ads|open_ads_consent_preferences')
-}
+export async function record_ads_click() {}
 
-export async function ads_consent_listener(callback) {
-	return await listen('ads-consent-required', (event) => callback(event.payload))
-}
-
-export async function record_ads_click() {
-	return await invoke('plugin:ads|record_ads_click')
-}
-
-export async function open_ads_link(path, origin) {
-	return await invoke('plugin:ads|open_link', { path, origin })
-}
+export async function open_ads_link(_path, _origin) {}

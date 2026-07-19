@@ -6,6 +6,7 @@ use chrono::{DateTime, Duration, TimeZone, Utc};
 use dashmap::DashMap;
 use futures::TryStreamExt;
 use heck::ToTitleCase;
+use md5::Md5;
 use p256::ecdsa::signature::Signer;
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
 use p256::pkcs8::{DecodePrivateKey, EncodePrivateKey, LineEnding};
@@ -244,13 +245,96 @@ impl OnlineProfileCacheIntent {
     }
 }
 
+/// Marker used in place of Microsoft refresh tokens for offline accounts. The
+/// real auth flow always returns a non-empty refresh token, so an empty value
+/// is an unambiguous signal that the credentials were created locally.
+pub const OFFLINE_REFRESH_TOKEN_MARKER: &str = "";
+
+/// Placeholder access token handed to Minecraft for offline accounts. Vanilla
+/// accepts any non-empty string when launching without a session.
+pub const OFFLINE_ACCESS_TOKEN_PLACEHOLDER: &str = "0";
+
+/// Computes the offline-mode UUID for a username using the same algorithm the
+/// vanilla launcher uses: `UUID.nameUUIDFromBytes("OfflinePlayer:" + name)`.
+pub fn offline_uuid_for_username(username: &str) -> Uuid {
+    let mut hasher = Md5::new();
+    hasher.update(format!("OfflinePlayer:{username}").as_bytes());
+    let mut bytes: [u8; 16] = hasher.finalize().into();
+    // RFC 4122 v3 (name-based, MD5) bookkeeping
+    bytes[6] = (bytes[6] & 0x0f) | 0x30;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    Uuid::from_bytes(bytes)
+}
+
+/// Validates an offline-mode username: 1..=16 characters of ASCII letters,
+/// digits, or underscores, matching the constraints vanilla Minecraft enforces
+/// for offline-style usernames.
+pub fn validate_offline_username(username: &str) -> crate::Result<()> {
+    if username.is_empty() {
+        return Err(ErrorKind::OtherError(
+            "Username cannot be empty.".to_string(),
+        )
+        .into());
+    }
+    if username.len() > 16 {
+        return Err(ErrorKind::OtherError(
+            "Username cannot be longer than 16 characters.".to_string(),
+        )
+        .into());
+    }
+    if !username
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(ErrorKind::OtherError(
+            "Username may only contain letters, digits, and underscores."
+                .to_string(),
+        )
+        .into());
+    }
+    Ok(())
+}
+
 impl Credentials {
+    /// Builds an offline-only [`Credentials`] value for the given username. The
+    /// resulting credential is not yet persisted; call [`upsert`](Self::upsert)
+    /// to commit it to the database.
+    pub fn new_offline(username: String) -> Self {
+        let id = offline_uuid_for_username(&username);
+        Self {
+            offline_profile: MinecraftProfile {
+                id,
+                name: username,
+                ..MinecraftProfile::default()
+            },
+            access_token: OFFLINE_ACCESS_TOKEN_PLACEHOLDER.to_string(),
+            refresh_token: OFFLINE_REFRESH_TOKEN_MARKER.to_string(),
+            // Offline credentials never expire; use a sentinel far in the
+            // future so the refresh path keeps short-circuiting even if the
+            // value round-trips through the database.
+            expires: Utc
+                .with_ymd_and_hms(9999, 12, 31, 23, 59, 59)
+                .single()
+                .unwrap_or_else(|| Utc::now() + Duration::days(365 * 100)),
+            active: true,
+        }
+    }
+
+    /// Returns true when these credentials were created locally for an offline
+    /// account, in which case no Microsoft/Mojang APIs should be called.
+    pub fn is_offline(&self) -> bool {
+        self.refresh_token == OFFLINE_REFRESH_TOKEN_MARKER
+    }
+
     /// Refreshes the authentication tokens for this user if they are expired, or
     /// very close to expiration.
     async fn refresh(
         &mut self,
         exec: impl sqlx::Executor<'_, Database = sqlx::Sqlite> + Copy,
     ) -> crate::Result<()> {
+        if self.is_offline() {
+            return Ok(());
+        }
         // Use a margin of 5 minutes to give e.g. Minecraft and potentially
         // other operations that depend on a fresh token 5 minutes to complete
         // from now, and deal with some classes of clock skew
@@ -331,6 +415,9 @@ impl Credentials {
         &self,
         cache_intent: OnlineProfileCacheIntent,
     ) -> Option<Arc<MinecraftProfile>> {
+        if self.is_offline() {
+            return None;
+        }
         let max_age = cache_intent.max_age();
         let stale_profile = {
             let mut profile_cache = PROFILE_CACHE.lock().await;

@@ -97,6 +97,7 @@
 		"jre:default",
 		"logs:default",
 		"metadata:default",
+		"migration:default",
 		"minecraft-skins:default",
 		"mr-auth:default",
 		"instance:default",

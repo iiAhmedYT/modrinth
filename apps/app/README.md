@@ -1,10 +1,10 @@
-# ![Modrinth App](/.github/assets/app_cover.png)
+# ![Meverinth](/.github/assets/app_cover.png)
 
-## Modrinth App
+## Meverinth
 
-The Modrinth App is a desktop application for managing your Minecraft mods. It is built with [Tauri](https://tauri.app/) and [Vue](https://vuejs.org/).
+Meverinth is a privacy-focused fork of the [Modrinth App](https://modrinth.com/app), a desktop application for managing your Minecraft mods. It is built with [Tauri](https://tauri.app/) and [Vue](https://vuejs.org/).
 
-If you're not a developer and you've stumbled upon this repository, you can download the latest release of the app from the [Modrinth website](https://modrinth.com/app).
+Compared to upstream, Meverinth has telemetry, error reporting, the in-app support chat, user surveys, ads, and download/playtime analytics removed, and adds support for offline-mode Minecraft accounts alongside the existing Microsoft sign-in flow.
 
 ## Development
 
