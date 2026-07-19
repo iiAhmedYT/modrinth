@@ -37,6 +37,18 @@ The desktop app is rebranded to **Meverinth** so users don't confuse this fork w
 - `modrinth://` / `modrinthscheme://` URL schemes — install links from modrinth.com use these.
 - The `theseus` / `theseus_gui` crate names.
 
+## Auto-updates disabled
+
+The Tauri auto-updater is turned off in release builds, and the standalone Linux update-check polling loop is removed. Without this, a release build would download and install Modrinth App releases from `launcher-files.modrinth.com` and silently replace Meverinth (Modrinth's signed artifacts validate against the pubkey that used to be baked into the binary).
+
+| File | Intent to preserve |
+| --- | --- |
+| `apps/app/tauri-release.conf.json` | No `plugins.updater` block, no `updater` in `build.features`, no `updater` in `app.security.capabilities`. The Windows `signCommand` for release signing stays. |
+| `apps/app/capabilities/updater.json` | **Deleted.** If upstream resurrects it, delete it again. |
+| `apps/app-frontend/src/App.vue` | No `checkLinuxUpdates` function, no fetch of `https://launcher-files.modrinth.com/updates.json`, no `linuxBody` entry in `updatePopupMessages`. `checkUpdates()` returns immediately when `areUpdatesEnabled()` reports `false` (which it always does now, because the `updater` Cargo feature stays off) — do not restore the Linux polling branch. |
+
+The rest of the update UI (progress spinner, "Download update" button, changelog link) is left in the file because it never executes at runtime — `areUpdatesEnabled()` short-circuits the whole flow — but if you want to fully strip it during a future cleanup, do it in its own commit so the diff is reviewable.
+
 ## Privacy posture
 
 Removes telemetry, error reporting, in-app support chat, surveys, ads, and Modrinth+ upsells. Nothing leaves the machine beyond what is strictly required for account sign-in and content browsing.
