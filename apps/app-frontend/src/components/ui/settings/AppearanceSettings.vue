@@ -22,7 +22,7 @@ const messages = defineMessages({
 	},
 	colorThemeDescription: {
 		id: 'app.appearance-settings.color-theme.description',
-		defaultMessage: 'Select your preferred color theme for Modrinth App.',
+		defaultMessage: 'Select your preferred color theme for Meverinth.',
 	},
 	advancedRenderingTitle: {
 		id: 'app.appearance-settings.advanced-rendering.title',

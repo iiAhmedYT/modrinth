@@ -36,6 +36,21 @@ pub async fn finish_login(
     crate::state::login_finish(code, flow, &state.pool).await
 }
 
+/// Creates an offline-mode Minecraft account with the given username, marks it
+/// as the active account, and persists it to the database.
+#[tracing::instrument]
+pub async fn create_offline_account(
+    username: String,
+) -> crate::Result<Credentials> {
+    crate::state::validate_offline_username(&username)?;
+
+    let state = State::get().await?;
+
+    let credentials = Credentials::new_offline(username);
+    credentials.upsert(&state.pool).await?;
+    Ok(credentials)
+}
+
 #[tracing::instrument]
 pub async fn get_default_user() -> crate::Result<Option<uuid::Uuid>> {
     let state = State::get().await?;

@@ -103,10 +103,12 @@ impl Settings {
             advanced_rendering: res.advanced_rendering == 1,
             native_decorations: res.native_decorations == 1,
             toggle_sidebar: res.toggle_sidebar == 1,
-            telemetry: res.telemetry == 1,
+            // Telemetry and personalized ads are unconditionally disabled in
+            // this privacy-focused build, regardless of the stored value.
+            telemetry: false,
             discord_rpc: res.discord_rpc == 1,
             developer_mode: res.developer_mode == 1,
-            personalized_ads: res.personalized_ads == 1,
+            personalized_ads: false,
             onboarded: res.onboarded == 1,
             extra_launch_args: res
                 .extra_launch_args

@@ -9,7 +9,6 @@ import {
 	VerboseLoggingFeature,
 } from '@modrinth/api-client'
 import {
-	ArrowBigUpDashIcon,
 	ChangeSkinIcon,
 	CompassIcon,
 	ExternalIcon,
@@ -19,7 +18,6 @@ import {
 	LogInIcon,
 	LogOutIcon,
 	NewspaperIcon,
-	NotepadTextIcon,
 	PlusIcon,
 	RefreshCwIcon,
 	RightArrowIcon,
@@ -27,7 +25,6 @@ import {
 	SettingsIcon,
 	UserIcon,
 	WorldIcon,
-	XIcon,
 } from '@modrinth/assets'
 import {
 	Admonition,
@@ -51,7 +48,6 @@ import {
 	providePopupNotificationManager,
 	useDebugLogger,
 	useFormatBytes,
-	useHostingIntercom,
 	useVIntl,
 } from '@modrinth/ui'
 import { renderString } from '@modrinth/utils'
@@ -63,8 +59,7 @@ import { fetch as tauriFetch } from '@tauri-apps/plugin-http'
 import { openUrl } from '@tauri-apps/plugin-opener'
 import { type } from '@tauri-apps/plugin-os'
 import { saveWindowState, StateFlags } from '@tauri-apps/plugin-window-state'
-import { $fetch } from 'ofetch'
-import { computed, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { RouterView, useRoute, useRouter } from 'vue-router'
 
 import ModrinthAppLogo from '@/assets/modrinth_app.svg?component'
@@ -81,26 +76,26 @@ import AuthGrantFlowWaitModal from '@/components/ui/modal/AuthGrantFlowWaitModal
 import InstallToPlayModal from '@/components/ui/modal/InstallToPlayModal.vue'
 import ModpackAlreadyInstalledModal from '@/components/ui/modal/ModpackAlreadyInstalledModal.vue'
 import UpdateToPlayModal from '@/components/ui/modal/UpdateToPlayModal.vue'
+import ModrinthMigrationModal from '@/components/ui/ModrinthMigrationModal.vue'
 import NavButton from '@/components/ui/NavButton.vue'
-import PrideFundraiserBanner from '@/components/ui/PrideFundraiserBanner.vue'
-import PromotionWrapper from '@/components/ui/PromotionWrapper.vue'
 import QuickInstanceSwitcher from '@/components/ui/QuickInstanceSwitcher.vue'
 import SplashScreen from '@/components/ui/SplashScreen.vue'
 import WindowControls from '@/components/ui/WindowControls.vue'
 import { useCheckDisableMouseover } from '@/composables/macCssFix.js'
 import { config } from '@/config'
-import { hide_ads_window, init_ads_window, show_ads_window } from '@/helpers/ads.js'
-import { debugAnalytics, initAnalytics, trackEvent } from '@/helpers/analytics'
+import { hide_ads_window, show_ads_window } from '@/helpers/ads.js'
+import { trackEvent } from '@/helpers/analytics'
 import { check_reachable } from '@/helpers/auth.js'
 import { get_user, get_version } from '@/helpers/cache.js'
 import { command_listener, notification_listener, warning_listener } from '@/helpers/events.js'
 import { install_create_modpack_instance, install_get_modpack_preview } from '@/helpers/install'
-import { list, run } from '@/helpers/instance'
+import { run } from '@/helpers/instance'
+import { find_modrinth_install_candidate } from '@/helpers/migration'
 import { cancelLogin, get as getCreds, login, logout } from '@/helpers/mr_auth.ts'
 import { mergeUrlQuery, parseModrinthLink } from '@/helpers/project-links.ts'
 import { get as getSettings, set as setSettings } from '@/helpers/settings.ts'
 import { get_opening_command, initialize_state } from '@/helpers/state'
-import { hasActivePride26Midas, hasMidasBadge } from '@/helpers/user-campaigns.ts'
+import { hasMidasBadge } from '@/helpers/user-campaigns.ts'
 import {
 	areUpdatesEnabled,
 	enqueueUpdateForInstallation,
@@ -144,8 +139,9 @@ const router = useRouter()
 const route = useRoute()
 const APP_LEFT_NAV_WIDTH = '4rem'
 const APP_SIDEBAR_WIDTH = 300
-const INTERCOM_BUBBLE_DEFAULT_PADDING = 20
-const PRIDE_FUNDRAISER_END_DATE = new Date('2026-07-01T00:00:00Z').getTime()
+// The Pride fundraiser banner and Intercom support-chat integration have been
+// removed from this privacy-focused build. The support-chat bubble slot in the
+// shared page context is filled with a placeholder that never activates.
 const credentials = ref()
 const sidebarToggled = ref(true)
 const unsubscribeSidebarToggle = themeStore.$subscribe(() => {
@@ -155,27 +151,6 @@ const forceSidebar = computed(
 	() => route.path.startsWith('/browse') || route.path.startsWith('/project'),
 )
 const sidebarVisible = computed(() => sidebarToggled.value || forceSidebar.value)
-const hostingRouteActive = computed(() => route.path.startsWith('/hosting'))
-const prideFundraiserEnabled = computed(
-	() => themeStore.getFeatureFlag('pride_fundraiser') && Date.now() < PRIDE_FUNDRAISER_END_DATE,
-)
-const hostingIntercomIdentityKey = computed(() => {
-	const rawServerId = route.params.id
-	const serverId = Array.isArray(rawServerId) ? rawServerId[0] : rawServerId
-	const userId = credentials.value?.user_id ?? credentials.value?.user?.id ?? 'anonymous'
-	return `${userId}:${serverId ?? 'hosting'}`
-})
-const hostingIntercom = useHostingIntercom({
-	enabled: computed(() => hostingRouteActive.value && !!credentials.value?.session),
-	appId: 'ykeritl9',
-	fetchToken: fetchIntercomToken,
-	identityKey: hostingIntercomIdentityKey,
-	horizontalPadding: computed(() =>
-		sidebarVisible.value
-			? APP_SIDEBAR_WIDTH + INTERCOM_BUBBLE_DEFAULT_PADDING
-			: INTERCOM_BUBBLE_DEFAULT_PADDING,
-	),
-})
 
 const notificationManager = new AppNotificationManager()
 provideNotificationManager(notificationManager)
@@ -207,12 +182,6 @@ const tauriApiClient = new TauriModrinthClient({
 	],
 })
 provideModrinthClient(tauriApiClient)
-const { data: authenticatedModrinthUser } = useQuery({
-	queryKey: computed(() => ['authenticated-user', 'campaigns', credentials.value?.user?.id]),
-	queryFn: () => tauriApiClient.labrinth.users_v3.getAuthenticated(),
-	enabled: () => !!credentials.value?.session,
-	retry: false,
-})
 providePageContext({
 	hierarchicalSidebarAvailable: ref(true),
 	showAds: ref(false),
@@ -220,7 +189,12 @@ providePageContext({
 		left: ref(APP_LEFT_NAV_WIDTH),
 		right: computed(() => (sidebarVisible.value ? `${APP_SIDEBAR_WIDTH}px` : '0px')),
 	},
-	intercomBubble: hostingIntercom.intercomBubble,
+	intercomBubble: {
+		width: ref(0),
+		horizontalPadding: computed(() => 0),
+		requestHorizontalPadding: () => {},
+		requestVerticalClearance: () => {},
+	},
 	featureFlags: {
 		serverRamAsBytesAlwaysOn: computed(() =>
 			themeStore.getFeatureFlag('server_ram_as_bytes_always_on'),
@@ -249,7 +223,6 @@ const {
 } = setupProviders(notificationManager, popupNotificationManager)
 
 const news = ref([])
-const availableSurvey = ref(false)
 const displayedServerInviteNotifications = new Set()
 
 const offline = ref(!navigator.onLine)
@@ -384,11 +357,8 @@ async function setupApp() {
 		isMaximized.value = await getCurrentWindow().isMaximized()
 	})
 
-	if (telemetry) {
-		initAnalytics()
-		if (dev) debugAnalytics()
-		trackEvent('Launched', { version, dev, onboarded })
-	}
+	// Telemetry has been removed from this privacy-focused build.
+	void telemetry
 
 	if (!dev) document.addEventListener('contextmenu', (event) => event.preventDefault())
 
@@ -453,27 +423,50 @@ async function setupApp() {
 		await setSettings(settings)
 	}
 
-	if (osType === 'windows') {
-		await processPendingSurveys()
-	} else {
-		console.info('Skipping user surveys on non-Windows platforms')
-	}
+	// In-app user surveys have been removed from this privacy-focused build.
 }
 
 const stateFailed = ref(false)
-initialize_state()
-	.then(() => {
-		setupApp().catch((err) => {
-			stateFailed.value = true
-			console.error(err)
-			error.showError(err, null, false, 'state_init')
-		})
+const migrationCandidate = ref(null)
+const migrationModal = ref(null)
+let migrationResolver = null
+
+function awaitMigrationDecision() {
+	return new Promise((resolve) => {
+		migrationResolver = resolve
 	})
-	.catch((err) => {
+}
+
+function handleMigrationDone(migrated) {
+	const resolver = migrationResolver
+	migrationResolver = null
+	resolver?.(migrated)
+}
+
+async function bootApp() {
+	try {
+		const candidate = await find_modrinth_install_candidate().catch((err) => {
+			console.warn('Failed to look for a Modrinth App migration candidate', err)
+			return null
+		})
+
+		if (candidate) {
+			migrationCandidate.value = candidate
+			await nextTick()
+			migrationModal.value?.show()
+			await awaitMigrationDecision()
+		}
+
+		await initialize_state()
+		await setupApp()
+	} catch (err) {
 		stateFailed.value = true
 		console.error('Failed to initialize app', err)
 		error.showError(err, null, false, 'state_init')
-	})
+	}
+}
+
+void bootApp()
 
 const handleClose = async () => {
 	await saveWindowState(StateFlags.ALL)
@@ -704,49 +697,10 @@ async function logOut() {
 }
 
 const hasPlus = computed(
-	() =>
-		!!credentials.value?.user &&
-		(hasMidasBadge(credentials.value.user) ||
-			hasActivePride26Midas(authenticatedModrinthUser.value?.campaigns?.pride_26)),
+	() => !!credentials.value?.user && hasMidasBadge(credentials.value.user),
 )
 
-const showAd = computed(
-	() => sidebarVisible.value && !hasPlus.value && credentials.value !== undefined,
-)
-
-async function fetchIntercomToken() {
-	const creds = await getCreds()
-	if (!creds?.session) {
-		throw new Error('Not authenticated')
-	}
-
-	const params = new URLSearchParams()
-	const rawServerId = route.params.id
-	const serverId = Array.isArray(rawServerId) ? rawServerId[0] : rawServerId
-	if (route.path.startsWith('/hosting/manage/') && typeof serverId === 'string') {
-		params.set('server_id', serverId)
-	}
-	const query = params.size > 0 ? `?${params.toString()}` : ''
-
-	const response = await tauriFetch(`${config.siteUrl}/api/intercom/messenger-jwt${query}`, {
-		method: 'GET',
-		headers: {
-			Authorization: `Bearer ${creds.session}`,
-		},
-	})
-	if (!response.ok) {
-		throw new Error(`Failed to fetch Intercom token: ${response.status}`)
-	}
-	return await response.json()
-}
-
-watch(showAd, () => {
-	if (!showAd.value) {
-		hide_ads_window(true)
-	} else {
-		init_ads_window(true)
-	}
-})
+// Ads and third-party support chat have been removed from this privacy-focused build.
 
 onMounted(() => {
 	invoke('show_window')
@@ -925,16 +879,16 @@ const updatePopupMessages = defineMessages({
 	},
 	meteredBody: {
 		id: 'app.update-popup.body.metered',
-		defaultMessage: `Modrinth App v{version} is available now! Since you're on a metered network, we didn't automatically download it.`,
+		defaultMessage: `Meverinth v{version} is available now! Since you're on a metered network, we didn't automatically download it.`,
 	},
 	downloadedBody: {
 		id: 'app.update-popup.body.download-complete',
-		defaultMessage: `Modrinth App v{version} has finished downloading. Reload to update now, or automatically when you close Modrinth App.`,
+		defaultMessage: `Meverinth v{version} has finished downloading. Reload to update now, or automatically when you close Meverinth.`,
 	},
 	linuxBody: {
 		id: 'app.update-popup.body.linux',
 		defaultMessage:
-			'Modrinth App v{version} is available. Use your package manager to update for the latest features and fixes!',
+			'Meverinth v{version} is available. Use your package manager to update for the latest features and fixes!',
 	},
 	reload: {
 		id: 'app.update-popup.reload',
@@ -1263,120 +1217,17 @@ function handleAuxClick(e) {
 	}
 }
 
-function cleanupOldSurveyDisplayData() {
-	const threeWeeksAgo = new Date()
-	threeWeeksAgo.setDate(threeWeeksAgo.getDate() - 21)
-
-	for (let i = 0; i < localStorage.length; i++) {
-		const key = localStorage.key(i)
-
-		if (key.startsWith('survey-') && key.endsWith('-display')) {
-			const dateValue = new Date(localStorage.getItem(key))
-			if (dateValue < threeWeeksAgo) {
-				localStorage.removeItem(key)
-			}
-		}
-	}
-}
-
-async function openSurvey() {
-	if (!availableSurvey.value) {
-		console.error('No survey to open')
-		return
-	}
-
-	const creds = await getCreds().catch(handleError)
-	const userId = creds?.user_id
-
-	const formId = availableSurvey.value.tally_id
-
-	const popupOptions = {
-		layout: 'modal',
-		width: 700,
-		autoClose: 2000,
-		hideTitle: true,
-		hiddenFields: {
-			user_id: userId,
-		},
-		onOpen: () => console.info('Opened user survey'),
-		onClose: () => {
-			console.info('Closed user survey')
-			show_ads_window()
-		},
-		onSubmit: () => console.info('Active user survey submitted'),
-	}
-
-	try {
-		hide_ads_window()
-		if (window.Tally?.openPopup) {
-			console.info(`Opening Tally popup for user survey (form ID: ${formId})`)
-			dismissSurvey()
-			window.Tally.openPopup(formId, popupOptions)
-		} else {
-			console.warn('Tally script not yet loaded')
-			show_ads_window()
-		}
-	} catch (e) {
-		console.error('Error opening Tally popup:', e)
-		show_ads_window()
-	}
-
-	console.info(`Found user survey to show with tally_id: ${formId}`)
-	window.Tally.openPopup(formId, popupOptions)
-}
-
-function dismissSurvey() {
-	localStorage.setItem(`survey-${availableSurvey.value.id}-display`, new Date())
-	availableSurvey.value = undefined
-}
-
-async function processPendingSurveys() {
-	function isWithinLastTwoWeeks(date) {
-		const twoWeeksAgo = new Date()
-		twoWeeksAgo.setDate(twoWeeksAgo.getDate() - 14)
-		return date >= twoWeeksAgo
-	}
-
-	cleanupOldSurveyDisplayData()
-
-	const creds = await getCreds().catch(handleError)
-	const userId = creds?.user_id
-
-	const instances = (await list().catch(handleError)) ?? []
-	const isActivePlayer = instances.some(
-		(instance) =>
-			isWithinLastTwoWeeks(instance.last_played) && !isWithinLastTwoWeeks(instance.created),
-	)
-
-	let surveys = []
-	try {
-		surveys = await $fetch('https://api.modrinth.com/v2/surveys')
-	} catch (e) {
-		console.error('Error fetching surveys:', e)
-	}
-
-	const surveyToShow = surveys.find(
-		(survey) =>
-			!!(
-				localStorage.getItem(`survey-${survey.id}-display`) === null &&
-				survey.type === 'tally_app' &&
-				((survey.condition === 'active_player' && isActivePlayer) ||
-					(survey.assigned_users?.includes(userId) && !survey.dismissed_users?.includes(userId)))
-			),
-	)
-
-	if (surveyToShow) {
-		availableSurvey.value = surveyToShow
-	} else {
-		console.info('No user survey to show')
-	}
-}
-
 provideAppUpdateDownloadProgress(appUpdateDownload)
 </script>
 
 <template>
 	<SplashScreen v-if="!stateFailed" ref="splashScreen" data-tauri-drag-region />
+	<ModrinthMigrationModal
+		v-if="migrationCandidate"
+		ref="migrationModal"
+		:candidate="migrationCandidate"
+		@done="handleMigrationDone"
+	/>
 	<div id="teleports"></div>
 	<div
 		v-if="stateInitialized"
@@ -1561,28 +1412,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 		}"
 	>
 		<div class="app-viewport flex-grow router-view">
-			<transition name="popup-survey">
-				<div
-					v-if="availableSurvey"
-					class="w-[400px] z-20 fixed -bottom-12 pb-16 right-[--right-bar-width] mr-4 rounded-t-2xl card-shadow bg-bg-raised border-surface-5 border-[1px] border-solid border-b-0 p-4"
-				>
-					<h2 class="text-lg font-extrabold mt-0 mb-2">Hey there Modrinth user!</h2>
-					<p class="m-0 leading-tight">
-						Would you mind answering a few questions about your experience with Modrinth App?
-					</p>
-					<p class="mt-3 mb-4 leading-tight">
-						This feedback will go directly to the Modrinth team and help guide future updates!
-					</p>
-					<div class="flex gap-2">
-						<ButtonStyled color="brand">
-							<button @click="openSurvey"><NotepadTextIcon /> Take survey</button>
-						</ButtonStyled>
-						<ButtonStyled>
-							<button @click="dismissSurvey"><XIcon /> No thanks</button>
-						</ButtonStyled>
-					</div>
-				</div>
-			</transition>
 			<div
 				class="loading-indicator-container h-8 fixed z-50 pointer-events-none"
 				:style="{
@@ -1656,10 +1485,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 							<FriendsList :credentials="credentials" :sign-in="() => signIn()" />
 						</suspense>
 					</div>
-					<PrideFundraiserBanner
-						v-if="prideFundraiserEnabled"
-						class="p-4 border-0 border-b-[1px] border-[--brand-gradient-border] border-solid"
-					/>
 					<div v-if="news && news.length > 0" class="p-4 flex flex-col items-center">
 						<h3 class="text-base mb-4 text-primary font-medium m-0 text-left w-full">News</h3>
 						<div class="space-y-4 flex flex-col items-center w-full">
@@ -1677,16 +1502,6 @@ provideAppUpdateDownloadProgress(appUpdateDownload)
 					</div>
 				</div>
 			</div>
-			<template v-if="showAd">
-				<a
-					href="https://modrinth.plus?app"
-					class="absolute bottom-[250px] w-full flex justify-center items-center gap-1 px-4 py-3 text-purple font-medium hover:underline z-10"
-					target="_blank"
-				>
-					<ArrowBigUpDashIcon class="text-2xl" /> Upgrade to Modrinth+
-				</a>
-				<PromotionWrapper />
-			</template>
 		</div>
 	</div>
 	<I18nDebugPanel />

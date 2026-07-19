@@ -448,8 +448,11 @@ async fn fetch_advanced_with_client_and_progress(
         None
     };
 
-    let download_meta_header = download_meta
-        .map(|m| (DOWNLOAD_META_HEADER.to_string(), m.to_header_value()));
+    // Download analytics metadata is intentionally dropped in this
+    // privacy-focused build, so the `modrinth-download-meta` header is
+    // never attached to outgoing requests.
+    let _ = download_meta;
+    let download_meta_header: Option<(String, String)> = None;
 
     for attempt in 1..=(FETCH_ATTEMPTS + 1) {
         if let Some(fence_key) = fence_key
@@ -476,7 +479,6 @@ async fn fetch_advanced_with_client_and_progress(
         }
 
         if let Some((name, value)) = &download_meta_header {
-            tracing::debug!("Sending download analytics: {value}");
             req = req.header(name.as_str(), value.as_str());
         }
 
